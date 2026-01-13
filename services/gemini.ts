@@ -1,0 +1,104 @@
+import { GoogleGenAI, Type } from "@google/genai";
+import { Dataset, EDASummary, ArchitecturePlan, ModelResult } from "../types";
+
+const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+const MODEL_FAST = 'gemini-3-flash-preview';
+const MODEL_SMART = 'gemini-3-pro-preview';
+
+// Helper to summarize dataset for prompt context
+const getDatasetContext = (dataset: Dataset): string => {
+  const columnInfo = dataset.columns.map(c => 
+    `- ${c.name} (${c.type}): ${c.unique} unique, ${c.missing} missing. Sample: ${JSON.stringify(c.sample)}`
+  ).join('\n');
+  return `Dataset Name: ${dataset.name}\nRows: ${dataset.rowCount}\nColumns:\n${columnInfo}`;
+};
+
+export const generateEDAAnalysis = async (dataset: Dataset): Promise<EDASummary> => {
+  const ai = getAI();
+  const context = getDatasetContext(dataset);
+  
+  const response = await ai.models.generateContent({
+    model: MODEL_FAST,
+    contents: `Perform an automated Exploratory Data Analysis (EDA) on this dataset summary:\n${context}\n\nProvide: 
+    1. A text summary of the data quality.
+    2. Potential correlations or interesting patterns.
+    3. Outlier detection strategy.
+    4. 3-4 specific recommendations for cleaning or feature engineering.`,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          summary: { type: Type.STRING },
+          correlations: { type: Type.STRING },
+          outliers: { type: Type.STRING },
+          recommendations: { type: Type.ARRAY, items: { type: Type.STRING } }
+        }
+      }
+    }
+  });
+
+  return JSON.parse(response.text || '{}') as EDASummary;
+};
+
+export const generateArchitecturePlan = async (dataset: Dataset): Promise<ArchitecturePlan> => {
+  const ai = getAI();
+  const context = getDatasetContext(dataset);
+
+  const response = await ai.models.generateContent({
+    model: MODEL_SMART, // Using Pro for complex architectural reasoning
+    contents: `You are a Senior Data Architect. Design a production-grade ingestion and serving pipeline for this data:\n${context}\n
+    
+    1. Design a PostgreSQL schema (SQL CREATE TABLE) optimized for this data.
+    2. specific Redis caching strategy (Keys, TTL) for an API serving this data.
+    3. Failure handling strategy for the ingestion pipeline (Retry logic, Dead Letter Queues).
+    4. A REST API Specification (OpenAPI-like summary) for exposing this data.`,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          dbSchema: { type: Type.STRING },
+          cachingStrategy: { type: Type.STRING },
+          failureHandling: { type: Type.STRING },
+          apiSpec: { type: Type.STRING }
+        }
+      }
+    }
+  });
+
+  return JSON.parse(response.text || '{}') as ArchitecturePlan;
+};
+
+export const trainModelSimulation = async (dataset: Dataset, targetColumn: string): Promise<ModelResult> => {
+  const ai = getAI();
+  const context = getDatasetContext(dataset);
+
+  const response = await ai.models.generateContent({
+    model: MODEL_SMART,
+    contents: `Act as an AutoML system. The user wants to predict the column '${targetColumn}' based on the other features in this dataset:\n${context}\n
+    
+    1. Select the best algorithm (e.g., Random Forest, XGBoost, Linear Regression).
+    2. Estimate the accuracy and F1 score based on the data characteristics (make a realistic estimation).
+    3. List the most important features.
+    4. Write a Python code snippet using scikit-learn/pandas to train this model.`,
+    config: {
+      thinkingConfig: { thinkingBudget: 1024 }, // Enable thinking for better model selection rationale
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          algorithm: { type: Type.STRING },
+          accuracy: { type: Type.NUMBER },
+          f1Score: { type: Type.NUMBER },
+          latency: { type: Type.STRING },
+          features: { type: Type.ARRAY, items: { type: Type.STRING } },
+          codeSnippet: { type: Type.STRING }
+        }
+      }
+    }
+  });
+
+  return JSON.parse(response.text || '{}') as ModelResult;
+};
