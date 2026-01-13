@@ -9,8 +9,10 @@ const getAI = () => {
     return new GoogleGenAI({ apiKey });
 };
 
+// Switching both to Flash to avoid 'Resource Exhausted' / 'Quota Exceeded' errors 
+// which are common with the Pro model on free/starter tiers.
 const MODEL_FAST = 'gemini-3-flash-preview';
-const MODEL_SMART = 'gemini-3-pro-preview';
+const MODEL_SMART = 'gemini-3-flash-preview'; 
 
 // Helper to summarize dataset for prompt context
 const getDatasetContext = (dataset: Dataset): string => {
@@ -18,6 +20,15 @@ const getDatasetContext = (dataset: Dataset): string => {
     `- ${c.name} (${c.type}): ${c.unique} unique, ${c.missing} missing. Sample: ${JSON.stringify(c.sample)}`
   ).join('\n');
   return `Dataset Name: ${dataset.name}\nRows: ${dataset.rowCount}\nColumns:\n${columnInfo}`;
+};
+
+const handleGenAIError = (error: any) => {
+    console.error("Gemini API Error:", error);
+    const msg = error.message || '';
+    if (msg.includes('429') || msg.includes('Quota exceeded') || msg.includes('RESOURCE_EXHAUSTED')) {
+        throw new Error("API Quota Exceeded. The AI model is currently overloaded or your key has hit its limit. Please try again in a minute.");
+    }
+    throw error;
 };
 
 export const generateEDAAnalysis = async (dataset: Dataset): Promise<EDASummary> => {
@@ -47,7 +58,7 @@ export const generateEDAAnalysis = async (dataset: Dataset): Promise<EDASummary>
     });
     return JSON.parse(response.text || '{}') as EDASummary;
   } catch (error) {
-      console.error("EDA Generation failed", error);
+      handleGenAIError(error);
       throw error;
   }
 };
@@ -58,7 +69,7 @@ export const generateArchitecturePlan = async (dataset: Dataset): Promise<Archit
 
   try {
     const response = await ai.models.generateContent({
-        model: MODEL_SMART, // Using Pro for complex architectural reasoning
+        model: MODEL_SMART, 
         contents: `You are a Senior Data Architect. Design a production-grade ingestion and serving pipeline for this data:\n${context}\n
         
         1. Design a PostgreSQL schema (SQL CREATE TABLE) optimized for this data.
@@ -84,7 +95,7 @@ export const generateArchitecturePlan = async (dataset: Dataset): Promise<Archit
     
     return JSON.parse(text) as ArchitecturePlan;
   } catch (error) {
-    console.error("Architecture Generation failed", error);
+    handleGenAIError(error);
     throw error;
   }
 };
@@ -103,7 +114,7 @@ export const trainModelSimulation = async (dataset: Dataset, targetColumn: strin
         3. List the most important features.
         4. Write a Python code snippet using scikit-learn/pandas to train this model.`,
         config: {
-        thinkingConfig: { thinkingBudget: 1024 }, // Enable thinking for better model selection rationale
+        // Removed thinkingConfig as it's primarily for 2.5/3 Pro/Thinking models and can cause issues on Flash if not supported in preview
         responseMimeType: "application/json",
         responseSchema: {
             type: Type.OBJECT,
@@ -120,7 +131,7 @@ export const trainModelSimulation = async (dataset: Dataset, targetColumn: strin
     });
     return JSON.parse(response.text || '{}') as ModelResult;
   } catch (error) {
-      console.error("Model Training Simulation failed", error);
+      handleGenAIError(error);
       throw error;
   }
 };
